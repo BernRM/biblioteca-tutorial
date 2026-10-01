@@ -23,3 +23,5 @@ export class LivroId extends Identifier {}
 export class AutorId extends Identifier {}
 
 export class AvaliacaoId extends Identifier {}
+
+export class SolicitacaoId extends Identifier {}

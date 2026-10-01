@@ -18,5 +18,5 @@ export interface LivroRepository {
   searchByTitulo(termo: string): Livro[];
   findByAutorIds(autorIds: AutorId[]): Livro[];
   findById(id: LivroId): Livro | null;
-  updateTitulo(livro: Livro): void;
+  updateIsbn(livro: Livro): void;
 }

@@ -36,3 +36,17 @@ export function tituloCorrigidoToJson(livro: Livro): TituloCorrigidoJson {
     titulo: livro.titulo,
   };
 }
+
+export type IsbnCorrigidoJson = {
+  id: number;
+  numeroRegistro: string;
+  isbn: string;
+};
+
+export function isbnCorrigidoToJson(livro: Livro): IsbnCorrigidoJson {
+  return {
+    id: livro.id!.value,
+    numeroRegistro: livro.numeroRegistro.value,
+    isbn: livro.isbn.value,
+  };
+}

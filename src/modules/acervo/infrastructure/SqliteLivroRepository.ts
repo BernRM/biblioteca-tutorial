@@ -45,6 +45,7 @@ export class SqliteLivroRepository implements LivroRepository {
     return row.total;
   }
 
+  
   insert(livro: Livro): Livro {
     const result = db.run(
       `INSERT INTO livros (numero_registro, isbn, titulo, autor_id, data_catalogacao)
@@ -69,12 +70,6 @@ export class SqliteLivroRepository implements LivroRepository {
     return row === null ? null : toLivro(row);
   }
 
-  findById(id: LivroId): Livro | null {
-    const row = db.query("SELECT * FROM livros WHERE id = ?")
-      .get(id.value) as LivroRow | null;
-    return row === null ? null : toLivro(row);
-  }
-
   updateTitulo(livro: Livro): void {
     db.run("UPDATE livros SET titulo = ? WHERE id = ?", [
       livro.titulo,
@@ -82,7 +77,20 @@ export class SqliteLivroRepository implements LivroRepository {
     ]);
   }
 
-  existeNumeroRegistro(numeroRegistro: string): boolean {
+  findById(id: LivroId): Livro | null {
+  const row = db.query("SELECT * FROM livros WHERE id = ?")
+    .get(id.value) as LivroRow | null;
+  return row === null ? null : toLivro(row);
+}
+
+updateIsbn(livro: Livro): void {
+  db.run("UPDATE livros SET isbn = ? WHERE id = ?", [
+    livro.isbn.value,
+    livro.id!.value,
+  ]);
+}
+
+existeNumeroRegistro(numeroRegistro: string): boolean {
   return db.query("SELECT 1 FROM livros WHERE numero_registro = ?")
     .get(numeroRegistro) !== null;
 }
@@ -102,6 +110,8 @@ export class SqliteLivroRepository implements LivroRepository {
 
     return rows.map(toLivro);
   }
+
+  
 
   findByAutorIds(autorIds: AutorId[]): Livro[] {
     if (autorIds.length === 0) return [];

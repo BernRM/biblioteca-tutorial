@@ -1,7 +1,7 @@
 import type { ConsultaDeLivros } from "../modules/avaliacao/ConsultaDeLivros ";
 import type { ConsultaDeAcervo } from "../modules/avaliacao/domain/ConsultaDeAcervo";
 
-export class AcervoComoConsultaDeAvaliacoes implements ConsultaDeAcervo {
+export class AcervoComoConsultaDeSolicitacoes implements ConsultaDeAcervo {
   constructor(private readonly livros: ConsultaDeLivros) {}
 
   existeNumeroRegistro(numeroRegistro: string): boolean {
