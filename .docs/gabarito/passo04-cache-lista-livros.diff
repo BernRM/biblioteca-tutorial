@@ -1,0 +1,310 @@
+diff --git a/backend/src/modules/catalog/features/create-book/createBook.ts b/backend/src/modules/catalog/features/create-book/createBook.ts
+index b0b0e99..63e452b 100644
+--- a/backend/src/modules/catalog/features/create-book/createBook.ts
++++ b/backend/src/modules/catalog/features/create-book/createBook.ts
+@@ -3,6 +3,7 @@ import { civilDate } from "../../../../shared/dates";
+ import type { BookInput, BookView } from "../../domain/Book";
+ import type { CatalogIntegration } from "../../domain/CatalogIntegration";
+ import { checkBookRules, toBookView, type BookRow } from "../../infrastructure/books";
++import { invalidateBookList } from "../../infrastructure/booksCache";
+ 
+ export async function createBook(input: BookInput, integration: CatalogIntegration, now = new Date()): Promise<BookView> {
+   const today = civilDate(now);
+@@ -18,5 +19,6 @@ export async function createBook(input: BookInput, integration: CatalogIntegrati
+   });
+   // efeitos derivados só depois do COMMIT: antes dele, ninguém mais vê o livro novo
+   await integration.bookCountsChanged([input.authorId]);
++  await invalidateBookList();
+   return book;
+ }
+\ No newline at end of file
+diff --git a/backend/src/modules/catalog/features/create-copy/createCopy.ts b/backend/src/modules/catalog/features/create-copy/createCopy.ts
+index 414804d..1b81d4f 100644
+--- a/backend/src/modules/catalog/features/create-copy/createCopy.ts
++++ b/backend/src/modules/catalog/features/create-copy/createCopy.ts
+@@ -4,12 +4,13 @@ import type { CatalogIntegration } from "../../domain/CatalogIntegration";
+ import type { CopyView, NewCopyInput } from "../../domain/Copy";
+ import { RegistrationNumber } from "../../domain/RegistrationNumber";
+ import { findBook } from "../../infrastructure/books";
++import { invalidateBookList } from "../../infrastructure/booksCache";
+ import { findCopyView } from "../../infrastructure/copies";
+ 
+ export async function createCopy(input: NewCopyInput, integration: CatalogIntegration, now = new Date()): Promise<CopyView> {
+   const today = civilDate(now);
+   const year = today.slice(0, 4);
+-  return inTransaction(async (tx) => {
++  const copy = await inTransaction(async (tx) => {
+     await findBook(tx, input.bookId);
+     const [counter] = await tx`
+       INSERT INTO acervo_sequencias (ano, ultimo) VALUES (${year}, 1)
+@@ -22,4 +23,7 @@ export async function createCopy(input: NewCopyInput, integration: CatalogIntegr
+     ` as { id: number }[];
+     return findCopyView(tx, row!.id, integration, today);
+   });
++  // depois do COMMIT: a lista de livros mostra totalExemplares e exemplaresDisponiveis
++  await invalidateBookList();
++  return copy;
+ }
+diff --git a/backend/src/modules/catalog/features/delete-book/deleteBook.ts b/backend/src/modules/catalog/features/delete-book/deleteBook.ts
+index 5d8d559..07cddc9 100644
+--- a/backend/src/modules/catalog/features/delete-book/deleteBook.ts
++++ b/backend/src/modules/catalog/features/delete-book/deleteBook.ts
+@@ -2,6 +2,7 @@ import { inTransaction } from "../../../../infrastructure/transaction";
+ import { RuleConflict } from "../../../../shared/errors";
+ import type { CatalogIntegration } from "../../domain/CatalogIntegration";
+ import { findBook } from "../../infrastructure/books";
++import { invalidateBookList } from "../../infrastructure/booksCache";
+ 
+ export async function deleteBook(id: number, integration: CatalogIntegration): Promise<void> {
+   const book = await inTransaction(async (tx) => {
+@@ -20,4 +21,5 @@ export async function deleteBook(id: number, integration: CatalogIntegration): P
+     return book;
+   });
+   await integration.bookCountsChanged([book.authorId]);
++  await invalidateBookList();
+ }
+\ No newline at end of file
+diff --git a/backend/src/modules/catalog/features/delete-copy/deleteCopy.ts b/backend/src/modules/catalog/features/delete-copy/deleteCopy.ts
+index a019492..71fea35 100644
+--- a/backend/src/modules/catalog/features/delete-copy/deleteCopy.ts
++++ b/backend/src/modules/catalog/features/delete-copy/deleteCopy.ts
+@@ -2,6 +2,7 @@ import { inTransaction } from "../../../../infrastructure/transaction";
+ import { civilDate } from "../../../../shared/dates";
+ import { RuleConflict } from "../../../../shared/errors";
+ import type { CatalogIntegration } from "../../domain/CatalogIntegration";
++import { invalidateBookList } from "../../infrastructure/booksCache";
+ import { findCopyView } from "../../infrastructure/copies";
+ 
+ export async function deleteCopy(id: number, integration: CatalogIntegration): Promise<void> {
+@@ -10,4 +11,5 @@ export async function deleteCopy(id: number, integration: CatalogIntegration): P
+     if (await integration.copyHasHistory(tx, id)) throw new RuleConflict("Exemplar possui histórico de reservas ou empréstimos e não pode ser excluído");
+     await tx`DELETE FROM exemplares WHERE id = ${id}`;
+   });
++  await invalidateBookList();
+ }
+diff --git a/backend/src/modules/catalog/features/list-books/list-books-cache.test.ts b/backend/src/modules/catalog/features/list-books/list-books-cache.test.ts
+new file mode 100644
+index 0000000..76d8716
+--- /dev/null
++++ b/backend/src/modules/catalog/features/list-books/list-books-cache.test.ts
+@@ -0,0 +1,56 @@
++import { expect, test } from "bun:test";
++import { api, testAuthor, testBook, testIsbn, testName } from "#tests/api";
++import { createRedis } from "../../../../infrastructure/redis";
++import { catalogIntegration } from "../../../../integration/catalogIntegration";
++import { invalidateBookList } from "../../infrastructure/booksCache";
++import { listBooksCached } from "./listBooksCached";
++
++async function list() {
++  const response = await api("GET", "/lista-livros");
++  expect(response.status).toBe(200);
++  return { cache: response.headers.get("X-Cache"), books: await response.json() as { id: number; totalExemplares: number }[] };
++}
++
++test("lista-livros: a segunda listagem vem do cache", async () => {
++  await invalidateBookList();
++  const first = await list();
++  expect(first.cache).toBe("MISS");
++  const second = await list();
++  expect(second.cache).toBe("HIT");
++  expect(second.books).toEqual(first.books);
++});
++
++test("lista-livros: cadastrar e excluir livro invalidam o cache", async () => {
++  await list();
++  expect((await list()).cache).toBe("HIT");
++  const author = await testAuthor();
++  const book = await (await api("POST", "/livros", { isbn: testIsbn(), titulo: testName("Livro"), autorId: author.id })).json();
++  const afterCreate = await list();
++  expect(afterCreate.cache).toBe("MISS");
++  expect(afterCreate.books.some((b) => b.id === book.id)).toBe(true);
++
++  expect((await list()).cache).toBe("HIT");
++  expect((await api("DELETE", `/livros/${book.id}`)).status).toBe(204);
++  const afterDelete = await list();
++  expect(afterDelete.cache).toBe("MISS");
++  expect(afterDelete.books.some((b) => b.id === book.id)).toBe(false);
++});
++
++test("lista-livros: cadastrar exemplar invalida o cache", async () => {
++  const book = await testBook();
++  await list();
++  expect((await list()).cache).toBe("HIT");
++  expect((await api("POST", "/exemplares", { livroId: book.id, localizacao: "Estante A", estadoConservacao: "bom" })).status).toBe(201);
++  const afterCopy = await list();
++  expect(afterCopy.cache).toBe("MISS");
++  expect(afterCopy.books.find((b) => b.id === book.id)!.totalExemplares).toBe(1);
++});
++
++test("lista-livros: sem Redis a listagem responde do Postgres", async () => {
++  const book = await testBook();
++  const dead = createRedis("redis://127.0.0.1:1", { autoReconnect: false });
++  const result = await listBooksCached(catalogIntegration, dead);
++  expect(result.cache).toBe("BYPASS");
++  expect(result.books.some((b) => b.id === book.id)).toBe(true);
++  await invalidateBookList(dead);
++});
+diff --git a/backend/src/modules/catalog/features/list-books/listBooksCached.ts b/backend/src/modules/catalog/features/list-books/listBooksCached.ts
+new file mode 100644
+index 0000000..a79576b
+--- /dev/null
++++ b/backend/src/modules/catalog/features/list-books/listBooksCached.ts
+@@ -0,0 +1,20 @@
++import type { RedisClient } from "bun";
++import { redis } from "../../../../infrastructure/redis";
++import type { BookView } from "../../domain/Book";
++import type { CatalogIntegration } from "../../domain/CatalogIntegration";
++import { readCachedBooks, writeCachedBooks, type CacheStatus } from "../../infrastructure/booksCache";
++import { listBooks } from "./listBooks";
++
++/**
++ * Cache-aside: procura no Redis; se não estiver lá, busca no Postgres e guarda.
++ * A listagem original continua igual, com várias consultas por livro (autor,
++ * contagem, exemplares, disponibilidade); é esse custo que o cache evita.
++ */
++export async function listBooksCached(integration: CatalogIntegration, client: RedisClient | null = redis): Promise<{ books: BookView[]; cache: CacheStatus }> {
++  const cached = await readCachedBooks(client);
++  if (cached?.books) return { books: cached.books, cache: "HIT" };
++  const books = await listBooks(integration);
++  if (!cached) return { books, cache: "BYPASS" };
++  await writeCachedBooks(cached.generation, books, client);
++  return { books, cache: "MISS" };
++}
+diff --git a/backend/src/modules/catalog/features/list-books/route.ts b/backend/src/modules/catalog/features/list-books/route.ts
+index 229363f..9d495e1 100644
+--- a/backend/src/modules/catalog/features/list-books/route.ts
++++ b/backend/src/modules/catalog/features/list-books/route.ts
+@@ -1,8 +1,14 @@
+ import type { Hono } from "hono";
+ import { catalogIntegration } from "../../../../integration/catalogIntegration";
+ import { bookJson } from "../../infrastructure/json";
+-import { listBooks } from "./listBooks";
++import { listBooksCached } from "./listBooksCached";
+ 
++/** Lista todos os livros, com cache no Redis. */
+ export function registerRoutes(api: Hono): void {
+-  api.get("/lista-livros", async (c) => c.json((await listBooks(catalogIntegration)).map(bookJson)));
++  api.get("/lista-livros", async (c) => {
++    const { books, cache } = await listBooksCached(catalogIntegration);
++    // HIT, MISS ou BYPASS (sem Redis): dá para ver o cache funcionando no DevTools
++    c.header("X-Cache", cache);
++    return c.json(books.map(bookJson));
++  });
+ }
+diff --git a/backend/src/modules/catalog/features/update-book/updateBook.ts b/backend/src/modules/catalog/features/update-book/updateBook.ts
+index 3b6c485..a5fe9c7 100644
+--- a/backend/src/modules/catalog/features/update-book/updateBook.ts
++++ b/backend/src/modules/catalog/features/update-book/updateBook.ts
+@@ -3,6 +3,7 @@ import { civilDate } from "../../../../shared/dates";
+ import type { BookInput, BookView } from "../../domain/Book";
+ import type { CatalogIntegration } from "../../domain/CatalogIntegration";
+ import { checkBookRules, findBook, toBookView, type BookRow } from "../../infrastructure/books";
++import { invalidateBookList } from "../../infrastructure/booksCache";
+ 
+ export async function updateBook(id: number, input: BookInput, integration: CatalogIntegration, now = new Date()): Promise<BookView> {
+   let authorIds: number[] = [];
+@@ -15,5 +16,6 @@ export async function updateBook(id: number, input: BookInput, integration: Cata
+     return toBookView(tx, row!, integration, civilDate(now));
+   });
+   await integration.bookCountsChanged(authorIds);
++  await invalidateBookList();
+   return book;
+ }
+\ No newline at end of file
+diff --git a/backend/src/modules/catalog/features/update-copy/updateCopy.ts b/backend/src/modules/catalog/features/update-copy/updateCopy.ts
+index 56bb1d3..338cea3 100644
+--- a/backend/src/modules/catalog/features/update-copy/updateCopy.ts
++++ b/backend/src/modules/catalog/features/update-copy/updateCopy.ts
+@@ -2,13 +2,16 @@ import { inTransaction } from "../../../../infrastructure/transaction";
+ import { civilDate } from "../../../../shared/dates";
+ import type { CatalogIntegration } from "../../domain/CatalogIntegration";
+ import type { CopyInput, CopyView } from "../../domain/Copy";
++import { invalidateBookList } from "../../infrastructure/booksCache";
+ import { findCopyView } from "../../infrastructure/copies";
+ 
+ export async function updateCopy(id: number, input: CopyInput, integration: CatalogIntegration, now = new Date()): Promise<CopyView> {
+   const today = civilDate(now);
+-  return inTransaction(async (tx) => {
++  const copy = await inTransaction(async (tx) => {
+     await findCopyView(tx, id, integration, today);
+     await tx`UPDATE exemplares SET localizacao = ${input.location}, estado_conservacao = ${input.condition} WHERE id = ${id}`;
+     return findCopyView(tx, id, integration, today);
+   });
++  await invalidateBookList();
++  return copy;
+ }
+diff --git a/backend/src/modules/catalog/infrastructure/booksCache.ts b/backend/src/modules/catalog/infrastructure/booksCache.ts
+new file mode 100644
+index 0000000..e815eec
+--- /dev/null
++++ b/backend/src/modules/catalog/infrastructure/booksCache.ts
+@@ -0,0 +1,69 @@
++import type { RedisClient } from "bun";
++import { ready, redis, redisKey } from "../../../infrastructure/redis";
++import type { BookView } from "../domain/Book";
++
++export type CacheStatus = "HIT" | "MISS" | "BYPASS";
++
++/** A lista em cache vale por 60 s mesmo que ninguém a invalide. */
++const TTL_SECONDS = 60;
++
++// "acervo" é o prefixo do módulo catalog (KEY_OWNERS em scripts/check-boundaries.ts)
++const GENERATION = redisKey("acervo", "livros", "geracao");
++
++/** Campo único do hash: a listagem não tem termo, é sempre a lista inteira. */
++const FIELD = "lista";
++
++/**
++ * Cada geração é um hash com o campo da lista, com TTL próprio (HSETEX, novo no
++ * Redis 8). Quando o campo expira, o hash some.
++ */
++function generationHash(generation: number): string {
++  return redisKey("acervo", "livros", String(generation));
++}
++
++/**
++ * Lê a geração atual e, nela, a lista de livros. Devolve null quando não há
++ * Redis (bypass): quem chamou segue direto para o Postgres.
++ */
++export async function readCachedBooks(client: RedisClient | null = redis): Promise<{ generation: number; books: BookView[] | null } | null> {
++  if (!client) return null;
++  try {
++    await ready(client);
++    const generation = Number(await client.get(GENERATION) ?? 0);
++    const cached = await client.hget(generationHash(generation), FIELD);
++    return { generation, books: cached === null ? null : JSON.parse(cached) as BookView[] };
++  } catch (error) {
++    console.warn("Cache de livros indisponível:", (error as Error).message);
++    return null;
++  }
++}
++
++/**
++ * Grava na geração que estava valendo quando a leitura começou. Se uma escrita
++ * invalidou o cache no meio do caminho, esta lista (talvez velha) vai para uma
++ * geração que ninguém mais lê, e expira sozinha.
++ */
++export async function writeCachedBooks(generation: number, books: BookView[], client: RedisClient | null = redis): Promise<void> {
++  if (!client) return;
++  try {
++    await ready(client);
++    await client.send("HSETEX", [generationHash(generation), "EX", String(TTL_SECONDS), "FIELDS", "1", FIELD, JSON.stringify(books)]);
++  } catch (error) {
++    console.warn("Cache de livros indisponível:", (error as Error).message);
++  }
++}
++
++/**
++ * Invalida a lista: a próxima leitura procura na geração seguinte, que começa
++ * vazia. Chame depois do COMMIT; antes dele, uma leitura concorrente ainda veria
++ * o dado antigo no Postgres e o gravaria na geração nova.
++ */
++export async function invalidateBookList(client: RedisClient | null = redis): Promise<void> {
++  if (!client) return;
++  try {
++    await ready(client);
++    await client.incr(GENERATION);
++  } catch (error) {
++    console.warn("Cache de livros indisponível:", (error as Error).message);
++  }
++}

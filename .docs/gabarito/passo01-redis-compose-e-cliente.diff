@@ -1,0 +1,222 @@
+diff --git a/backend/src/import-books.ts b/backend/src/import-books.ts
+index 466438a..1acd6df 100644
+--- a/backend/src/import-books.ts
++++ b/backend/src/import-books.ts
+@@ -1,4 +1,5 @@
+ import { prepareDatabase } from "./composition";
++import { redis } from "./infrastructure/redis";
+ import { catalogIntegration } from "./integration/catalogIntegration";
+ import { parseBookInput } from "./modules/catalog/domain/Book";
+ import { createBook } from "./modules/catalog/features/create-book/createBook";
+@@ -31,3 +32,6 @@ for (const row of rows) {
+ }
+ 
+ console.log(`importados: ${imported} | rejeitados: ${rejected}`);
++
++// sem isto, a conexão aberta com o Redis manteria o processo vivo
++redis?.close();
+\ No newline at end of file
+diff --git a/backend/src/infrastructure/redis.test.ts b/backend/src/infrastructure/redis.test.ts
+new file mode 100644
+index 0000000..8455c0a
+--- /dev/null
++++ b/backend/src/infrastructure/redis.test.ts
+@@ -0,0 +1,18 @@
++import { expect, test } from "bun:test";
++import { createRedis, ready, redis, redisKey } from "./redis";
++
++test("redisKey prefixa o namespace do ambiente", () => {
++  expect(redisKey("autoria", "x")).toBe(`${process.env.REDIS_PREFIX ?? "biblioteca"}:autoria:x`);
++});
++
++test("o Redis 8 do compose responde", async () => {
++  expect(await (await ready(redis!)).send("PING", [])).toBe("PONG");
++  expect(String(await redis!.send("INFO", ["server"]))).toContain("redis_version:8");
++});
++
++test("cliente sem servidor falha rápido", async () => {
++  const dead = createRedis("redis://127.0.0.1:1", { autoReconnect: false });
++  const started = performance.now();
++  await expect(ready(dead)).rejects.toThrow();
++  expect(performance.now() - started).toBeLessThan(3000);
++});
+\ No newline at end of file
+diff --git a/backend/src/infrastructure/redis.ts b/backend/src/infrastructure/redis.ts
+new file mode 100644
+index 0000000..f01b5de
+--- /dev/null
++++ b/backend/src/infrastructure/redis.ts
+@@ -0,0 +1,38 @@
++import { RedisClient } from "bun";
++
++/**
++ * Cliente Redis do próprio Bun. Sem fila offline: com o Redis fora do ar, cada
++ * comando falha na hora, e quem chamou decide seguir sem o dado derivado, em vez
++ * de a requisição ficar esperando a reconexão.
++ */
++export function createRedis(url: string, options: { autoReconnect?: boolean } = {}): RedisClient {
++  return new RedisClient(url, { enableOfflineQueue: false, connectionTimeout: 2000, ...options });
++}
++
++/**
++ * O Redis só guarda dados derivados do Postgres (cache e índice de busca). Sem
++ * REDIS_URL a aplicação funciona do mesmo jeito, só que sem eles.
++ */
++export const redis: RedisClient | null = process.env.REDIS_URL ? createRedis(process.env.REDIS_URL) : null;
++
++/**
++ * A conexão é aberta no primeiro uso. Sem fila offline, um comando enviado antes
++ * dela ficar pronta seria recusado; por isso quem usa o Redis passa por aqui.
++ * Com o servidor fora do ar, connect() rejeita: recusa imediata ou, no máximo, o
++ * connectionTimeout.
++ */
++export async function ready(client: RedisClient): Promise<RedisClient> {
++  if (!client.connected) await client.connect();
++  return client;
++}
++
++const PREFIX = process.env.REDIS_PREFIX ?? "biblioteca";
++
++/**
++ * Toda chave passa por aqui. O prefixo separa os ambientes que dividem o mesmo
++ * Redis (a aplicação usa "biblioteca", os testes "biblioteca_test"), e o primeiro
++ * trecho diz o módulo dono da chave, como acontece com as tabelas.
++ */
++export function redisKey(...parts: string[]): string {
++  return [PREFIX, ...parts].join(":");
++}
+\ No newline at end of file
+diff --git a/backend/src/seed.ts b/backend/src/seed.ts
+index 5c427f8..6bc6f41 100644
+--- a/backend/src/seed.ts
++++ b/backend/src/seed.ts
+@@ -1,5 +1,6 @@
+ import { prepareDatabase } from "./composition";
+ import { sql } from "./infrastructure/postgres";
++import { redis } from "./infrastructure/redis";
+ import { runSeed } from "./integration/seed/run";
+ 
+ try {
+@@ -8,4 +9,4 @@ try {
+ } catch (error) {
+   console.error(error instanceof Error ? error.message : error);
+   process.exitCode = 1;
+-} finally { await sql.close(); }
++} finally { await sql.close(); redis?.close(); }
+\ No newline at end of file
+diff --git a/backend/src/server.ts b/backend/src/server.ts
+index 3e40cec..f960687 100644
+--- a/backend/src/server.ts
++++ b/backend/src/server.ts
+@@ -1,7 +1,7 @@
+ import { Hono } from "hono";
+ import { serveStatic } from "hono/bun";
+ import { DomainError, InvalidValue } from "./shared/domain-errors";
+-import { InvalidInput, NotFound, RuleConflict } from "./shared/errors";
++import { InvalidInput, NotFound, RuleConflict, ServiceUnavailable } from "./shared/errors";
+ import type { RegisterRoutes } from "./shared/http";
+ 
+ /** O build do React (`bun run build` em frontend/), relativo à pasta backend/. */
+@@ -20,6 +20,10 @@ function errorResponse(error: unknown): Response {
+     return Response.json({ error: error.message }, { status: 409 });
+   }
+ 
++  if (error instanceof ServiceUnavailable) {
++    return Response.json({ error: error.message }, { status: 503 });
++  }
++
+   console.error(error);
+ 
+   return Response.json({ error: "Erro interno" }, { status: 500 });
+@@ -59,4 +63,4 @@ export function createServer(
+   port = Number(process.env.PORT ?? 3000),
+ ) {
+   return Bun.serve({ port, fetch: createApp(slices).fetch });
+-}
++}
+\ No newline at end of file
+diff --git a/backend/src/shared/errors.ts b/backend/src/shared/errors.ts
+index 77ae895..35e8e15 100644
+--- a/backend/src/shared/errors.ts
++++ b/backend/src/shared/errors.ts
+@@ -10,3 +10,6 @@ export class InvalidInput extends ApplicationError {}
+ export class NotFound extends ApplicationError {}
+ 
+ export class RuleConflict extends ApplicationError {}
++
++/** Um serviço externo (Redis, provedor de embeddings) não respondeu: HTTP 503. */
++export class ServiceUnavailable extends ApplicationError {}
+\ No newline at end of file
+diff --git a/backend/tests/errors.test.ts b/backend/tests/errors.test.ts
+new file mode 100644
+index 0000000..b2b3eb5
+--- /dev/null
++++ b/backend/tests/errors.test.ts
+@@ -0,0 +1,10 @@
++import { expect, test } from "bun:test";
++import { createApp } from "../src/server";
++import { ServiceUnavailable } from "../src/shared/errors";
++
++test("serviço externo indisponível responde 503 com a mensagem", async () => {
++  const app = createApp([(api) => api.get("/indisponivel", () => { throw new ServiceUnavailable("Fora do ar"); })]);
++  const response = await app.request("/api/indisponivel");
++  expect(response.status).toBe(503);
++  expect(await response.json()).toEqual({ error: "Fora do ar" });
++});
+\ No newline at end of file
+diff --git a/infra/compose.yaml b/infra/compose.yaml
+index 7b337d5..4f014c4 100644
+--- a/infra/compose.yaml
++++ b/infra/compose.yaml
+@@ -8,11 +8,18 @@ services:
+     environment:
+       # dentro da rede do compose, o banco atende pelo nome do serviço: db
+       DATABASE_URL: postgres://biblioteca:biblioteca@db:5432/biblioteca
++      # e o Redis, pelo nome redis; o prefixo separa as chaves da aplicação das dos testes
++      REDIS_URL: redis://redis:6379
++      REDIS_PREFIX: biblioteca
++      # vem de infra/.env (copie infra/.env.example); vazia, a busca semântica fica indisponível
++      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+     ports:
+       - "3000:3000"
+     depends_on:
+       db:
+         condition: service_healthy
++      redis:
++        condition: service_healthy
+ 
+   # a suíte de testes, rodando dentro da rede e contra o banco de testes:
+   # docker compose -f infra/compose.yaml run --rm --build test
+@@ -23,9 +30,13 @@ services:
+     command: ["bun", "test"]
+     environment:
+       DATABASE_URL: postgres://biblioteca:biblioteca@db:5432/biblioteca_test
++      REDIS_URL: redis://redis:6379
++      REDIS_PREFIX: biblioteca_test
+     depends_on:
+       db:
+         condition: service_healthy
++      redis:
++        condition: service_healthy
+     # com um profile, o "docker compose -f infra/compose.yaml up" não sobe este serviço
+     profiles: ["test"]
+ 
+@@ -47,5 +58,16 @@ services:
+       timeout: 3s
+       retries: 15
+ 
++  # Redis 8: cache e índice da busca semântica. Sem "ports" e sem volume de
++  # propósito: ele só guarda dados derivados. Se o contêiner sumir, o servidor
++  # reconstrói tudo a partir do Postgres, que continua sendo a fonte da verdade.
++  redis:
++    image: redis:8
++    healthcheck:
++      test: ["CMD", "redis-cli", "ping"]
++      interval: 2s
++      timeout: 3s
++      retries: 15
++
+ volumes:
+-  pgdata:
++  pgdata:
+\ No newline at end of file

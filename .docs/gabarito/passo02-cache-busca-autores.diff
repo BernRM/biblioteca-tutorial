@@ -1,0 +1,319 @@
+diff --git a/backend/scripts/check-boundaries.ts b/backend/scripts/check-boundaries.ts
+index e7155db..9f94aca 100644
+--- a/backend/scripts/check-boundaries.ts
++++ b/backend/scripts/check-boundaries.ts
+@@ -16,6 +16,12 @@ const TABLE_OWNERS: Record<string, string> = {
+   emprestimos: "circulation",
+ };
+ 
++/** O mesmo vale para o Redis: o primeiro trecho de redisKey(...) diz o módulo dono da chave. */
++const KEY_OWNERS: Record<string, string> = {
++  autoria: "authorship",
++  acervo: "catalog",
++};
++
+ /** Pasta da fatia (src/modules/<módulo>/features/<fatia>), ou null fora de uma fatia. */
+ function sliceOf(path: string): string | null {
+   const parts = path.split("/");
+@@ -59,6 +65,15 @@ for await (const rawFile of new Glob("src/modules/**/*.ts").scan(".")) {
+       );
+     }
+   }
++
++  for (const found of code.matchAll(/redisKey\(\s*"(\w+)"/g)) {
++    const owner = KEY_OWNERS[found[1]!];
++    if (owner !== module) {
++      problems.push(
++        `${file}\n      toca a chave Redis "${found[1]}:*", que pertence a ${owner ?? "nenhum módulo"}`,
++      );
++    }
++  }
+ }
+ 
+ /**
+@@ -101,4 +116,4 @@ if (problems.length > 0) {
+   process.exit(1);
+ }
+ 
+-console.log("Fronteiras de módulo respeitadas.");
++console.log("Fronteiras de módulo respeitadas.");
+\ No newline at end of file
+diff --git a/backend/src/modules/authorship/features/create-author/createAuthor.ts b/backend/src/modules/authorship/features/create-author/createAuthor.ts
+index e7331de..5e87375 100644
+--- a/backend/src/modules/authorship/features/create-author/createAuthor.ts
++++ b/backend/src/modules/authorship/features/create-author/createAuthor.ts
+@@ -1,9 +1,13 @@
+ import { inTransaction } from "../../../../infrastructure/transaction";
+ import type { AuthorInput, AuthorType, AuthorView } from "../../domain/Author";
++import { invalidateAuthorSearch } from "../../infrastructure/searchCache";
+ 
+ export async function createAuthor(input: AuthorInput): Promise<AuthorView> {
+-  return inTransaction(async (tx) => {
++  const author = await inTransaction(async (tx) => {
+     const [row] = await tx`INSERT INTO autores (nome, tipo) VALUES (${input.name}, ${input.type}) RETURNING id, nome AS name, tipo AS type` as { id: number; name: string; type: AuthorType }[];
+     return { ...row!, bookCount: 0 };
+   });
+-}
++  // depois do COMMIT: só agora o autor novo é visível para quem refizer a busca
++  await invalidateAuthorSearch();
++  return author;
++}
+\ No newline at end of file
+diff --git a/backend/src/modules/authorship/features/delete-author/deleteAuthor.ts b/backend/src/modules/authorship/features/delete-author/deleteAuthor.ts
+index d64c882..6be4161 100644
+--- a/backend/src/modules/authorship/features/delete-author/deleteAuthor.ts
++++ b/backend/src/modules/authorship/features/delete-author/deleteAuthor.ts
+@@ -2,6 +2,7 @@ import { inTransaction } from "../../../../infrastructure/transaction";
+ import { RuleConflict } from "../../../../shared/errors";
+ import type { AuthorshipIntegration } from "../../domain/AuthorshipIntegration";
+ import { findAuthor } from "../../infrastructure/authors";
++import { invalidateAuthorSearch } from "../../infrastructure/searchCache";
+ 
+ export async function deleteAuthor(id: number, integration: AuthorshipIntegration): Promise<void> {
+   await inTransaction(async (tx) => {
+@@ -9,4 +10,5 @@ export async function deleteAuthor(id: number, integration: AuthorshipIntegratio
+     if (await integration.countBooks(tx, id) > 0) throw new RuleConflict("Autor possui livros e não pode ser excluído");
+     await tx`DELETE FROM autores WHERE id = ${id}`;
+   });
+-}
++  await invalidateAuthorSearch();
++}
+\ No newline at end of file
+diff --git a/backend/src/modules/authorship/features/search-authors/route.ts b/backend/src/modules/authorship/features/search-authors/route.ts
+index 158ba34..02c51ed 100644
+--- a/backend/src/modules/authorship/features/search-authors/route.ts
++++ b/backend/src/modules/authorship/features/search-authors/route.ts
+@@ -3,10 +3,15 @@ import { authorshipIntegration } from "../../../../integration/authorshipIntegra
+ import { parseId } from "../../../../shared/validation";
+ import { authorJson } from "../../infrastructure/json";
+ import { getAuthor } from "./getAuthor";
+-import { searchAuthors } from "./searchAuthors";
++import { searchAuthorsCached } from "./searchAuthorsCached";
+ 
+-/** UC06: busca autores por nome ou identificador. */
++/** UC06: busca autores por nome ou identificador, com cache no Redis. */
+ export function registerRoutes(api: Hono): void {
+-  api.get("/autores", async (c) => c.json((await searchAuthors(c.req.query("q") ?? "", authorshipIntegration)).map(authorJson)));
++  api.get("/autores", async (c) => {
++    const { authors, cache } = await searchAuthorsCached(c.req.query("q") ?? "", authorshipIntegration);
++    // HIT, MISS ou BYPASS (sem Redis): dá para ver o cache funcionando no DevTools
++    c.header("X-Cache", cache);
++    return c.json(authors.map(authorJson));
++  });
+   api.get("/autores/:id", async (c) => c.json(authorJson(await getAuthor(parseId(c.req.param("id")), authorshipIntegration))));
+-}
++}
+\ No newline at end of file
+diff --git a/backend/src/modules/authorship/features/search-authors/search-authors-cache.test.ts b/backend/src/modules/authorship/features/search-authors/search-authors-cache.test.ts
+new file mode 100644
+index 0000000..e171776
+--- /dev/null
++++ b/backend/src/modules/authorship/features/search-authors/search-authors-cache.test.ts
+@@ -0,0 +1,61 @@
++import { expect, test } from "bun:test";
++import { api, testAuthor, testName } from "#tests/api";
++import { createRedis } from "../../../../infrastructure/redis";
++import { authorshipIntegration } from "../../../../integration/authorshipIntegration";
++import { invalidateAuthorSearch, readCachedSearch, writeCachedSearch } from "../../infrastructure/searchCache";
++import { searchAuthorsCached } from "./searchAuthorsCached";
++
++async function search(q: string) {
++  const response = await api("GET", `/autores?q=${encodeURIComponent(q)}`);
++  expect(response.status).toBe(200);
++  return { cache: response.headers.get("X-Cache"), authors: await response.json() as { id: number; nome: string }[] };
++}
++
++test("UC06: a segunda busca vem do cache", async () => {
++  const author = await testAuthor();
++  const first = await search(author.nome);
++  expect(first.cache).toBe("MISS");
++  const second = await search(author.nome);
++  expect(second.cache).toBe("HIT");
++  expect(second.authors).toEqual(first.authors);
++});
++
++test("UC06: cadastrar, editar e excluir autor invalidam o cache", async () => {
++  await search("");
++  expect((await search("")).cache).toBe("HIT");
++  const author = await testAuthor();
++  const afterCreate = await search("");
++  expect(afterCreate.cache).toBe("MISS");
++  expect(afterCreate.authors.some((a) => a.id === author.id)).toBe(true);
++
++  const renamed = testName("Autor");
++  await search(renamed);
++  expect((await api("PUT", `/autores/${author.id}`, { nome: renamed, tipo: "literatura" })).status).toBe(200);
++  const afterUpdate = await search(renamed);
++  expect(afterUpdate.cache).toBe("MISS");
++  expect(afterUpdate.authors.map((a) => a.id)).toEqual([author.id]);
++
++  expect((await api("DELETE", `/autores/${author.id}`)).status).toBe(204);
++  const afterDelete = await search(renamed);
++  expect(afterDelete.cache).toBe("MISS");
++  expect(afterDelete.authors).toEqual([]);
++});
++
++test("UC06: resultado velho gravado numa geração antiga não é lido", async () => {
++  const term = testName("Termo");
++  const read = await readCachedSearch(term);
++  expect(read!.authors).toBeNull();
++  // uma escrita termina entre a leitura no Postgres e a gravação no cache
++  await invalidateAuthorSearch();
++  await writeCachedSearch(term, read!.generation, [{ id: 1, name: "Velho", type: "literatura", bookCount: 0 }]);
++  expect((await readCachedSearch(term))!.authors).toBeNull();
++});
++
++test("UC06: sem Redis a busca responde do Postgres", async () => {
++  const author = await testAuthor();
++  const dead = createRedis("redis://127.0.0.1:1", { autoReconnect: false });
++  const result = await searchAuthorsCached(author.nome, authorshipIntegration, dead);
++  expect(result.cache).toBe("BYPASS");
++  expect(result.authors.map((a) => a.id)).toEqual([author.id]);
++  await invalidateAuthorSearch(dead);
++});
+\ No newline at end of file
+diff --git a/backend/src/modules/authorship/features/search-authors/searchAuthorsCached.ts b/backend/src/modules/authorship/features/search-authors/searchAuthorsCached.ts
+new file mode 100644
+index 0000000..f03158c
+--- /dev/null
++++ b/backend/src/modules/authorship/features/search-authors/searchAuthorsCached.ts
+@@ -0,0 +1,20 @@
++import type { RedisClient } from "bun";
++import { redis } from "../../../../infrastructure/redis";
++import type { AuthorView } from "../../domain/Author";
++import type { AuthorshipIntegration } from "../../domain/AuthorshipIntegration";
++import { readCachedSearch, writeCachedSearch, type CacheStatus } from "../../infrastructure/searchCache";
++import { searchAuthors } from "./searchAuthors";
++
++/**
++ * Cache-aside: procura no Redis; se não estiver lá, busca no Postgres e guarda.
++ * A busca original continua igual, com 1 + N consultas (uma contagem de livros
++ * por autor); é esse custo que o cache evita na segunda vez.
++ */
++export async function searchAuthorsCached(term: string, integration: AuthorshipIntegration, client: RedisClient | null = redis): Promise<{ authors: AuthorView[]; cache: CacheStatus }> {
++  const cached = await readCachedSearch(term, client);
++  if (cached?.authors) return { authors: cached.authors, cache: "HIT" };
++  const authors = await searchAuthors(term, integration);
++  if (!cached) return { authors, cache: "BYPASS" };
++  await writeCachedSearch(term, cached.generation, authors, client);
++  return { authors, cache: "MISS" };
++}
+\ No newline at end of file
+diff --git a/backend/src/modules/authorship/features/update-author/updateAuthor.ts b/backend/src/modules/authorship/features/update-author/updateAuthor.ts
+index 3121d39..eac84eb 100644
+--- a/backend/src/modules/authorship/features/update-author/updateAuthor.ts
++++ b/backend/src/modules/authorship/features/update-author/updateAuthor.ts
+@@ -3,9 +3,10 @@ import { RuleConflict } from "../../../../shared/errors";
+ import type { AuthorInput, AuthorView } from "../../domain/Author";
+ import type { AuthorshipIntegration } from "../../domain/AuthorshipIntegration";
+ import { findAuthor, toAuthorView, type AuthorRow } from "../../infrastructure/authors";
++import { invalidateAuthorSearch } from "../../infrastructure/searchCache";
+ 
+ export async function updateAuthor(id: number, input: AuthorInput, integration: AuthorshipIntegration): Promise<AuthorView> {
+-  return inTransaction(async (tx) => {
++  const author = await inTransaction(async (tx) => {
+     await findAuthor(tx, id);
+     const count = await integration.countBooks(tx, id);
+     const limit = input.type === "literatura" ? 5 : 10;
+@@ -13,4 +14,6 @@ export async function updateAuthor(id: number, input: AuthorInput, integration:
+     const [row] = await tx`UPDATE autores SET nome = ${input.name}, tipo = ${input.type}, livros_no_acervo = ${count} WHERE id = ${id} RETURNING id, nome AS name, tipo AS type, livros_no_acervo AS "bookCount"` as AuthorRow[];
+     return toAuthorView(tx, row!, integration);
+   });
+-}
++  await invalidateAuthorSearch();
++  return author;
++}
+\ No newline at end of file
+diff --git a/backend/src/modules/authorship/index.ts b/backend/src/modules/authorship/index.ts
+index 98dd1db..695283e 100644
+--- a/backend/src/modules/authorship/index.ts
++++ b/backend/src/modules/authorship/index.ts
+@@ -1,6 +1,8 @@
+ /**
+- * API pública do módulo Autoria: a preparação das tabelas e o contrato que a
+- * integração implementa para contar os livros de cada autor.
++ * API pública do módulo Autoria: a preparação das tabelas, o contrato que a
++ * integração implementa para contar os livros de cada autor e a invalidação do
++ * cache de buscas, que outros módulos disparam quando mudam essa contagem.
+  */
+ export { prepareAuthorship } from "./infrastructure/schema";
+ export type { AuthorshipDb, AuthorshipIntegration } from "./domain/AuthorshipIntegration";
++export { invalidateAuthorSearch } from "./infrastructure/searchCache";
+\ No newline at end of file
+diff --git a/backend/src/modules/authorship/infrastructure/searchCache.ts b/backend/src/modules/authorship/infrastructure/searchCache.ts
+new file mode 100644
+index 0000000..1c4e5a8
+--- /dev/null
++++ b/backend/src/modules/authorship/infrastructure/searchCache.ts
+@@ -0,0 +1,70 @@
++import type { RedisClient } from "bun";
++import { ready, redis, redisKey } from "../../../infrastructure/redis";
++import type { AuthorView } from "../domain/Author";
++
++export type CacheStatus = "HIT" | "MISS" | "BYPASS";
++
++/** Um resultado em cache vale por 60 s mesmo que ninguém o invalide. */
++const TTL_SECONDS = 60;
++
++const GENERATION = redisKey("autoria", "buscas", "geracao");
++
++/**
++ * Cada geração é um hash: um campo por termo buscado, cada campo com o próprio
++ * TTL (HSETEX, novo no Redis 8). Quando todos os campos expiram, o hash some.
++ */
++function generationHash(generation: number): string {
++  return redisKey("autoria", "buscas", String(generation));
++}
++
++/** A busca usa ILIKE: "Machado" e " machado " são o mesmo resultado. */
++function field(term: string): string {
++  return `q:${term.trim().toLocaleLowerCase("pt-BR")}`;
++}
++
++/**
++ * Lê a geração atual e, nela, o resultado do termo. Devolve null quando não há
++ * Redis (bypass): quem chamou segue direto para o Postgres.
++ */
++export async function readCachedSearch(term: string, client: RedisClient | null = redis): Promise<{ generation: number; authors: AuthorView[] | null } | null> {
++  if (!client) return null;
++  try {
++    await ready(client);
++    const generation = Number(await client.get(GENERATION) ?? 0);
++    const cached = await client.hget(generationHash(generation), field(term));
++    return { generation, authors: cached === null ? null : JSON.parse(cached) as AuthorView[] };
++  } catch (error) {
++    console.warn("Cache de autores indisponível:", (error as Error).message);
++    return null;
++  }
++}
++
++/**
++ * Grava na geração que estava valendo quando a leitura começou. Se uma escrita
++ * invalidou o cache no meio do caminho, este resultado (talvez velho) vai para
++ * uma geração que ninguém mais lê, e expira sozinho.
++ */
++export async function writeCachedSearch(term: string, generation: number, authors: AuthorView[], client: RedisClient | null = redis): Promise<void> {
++  if (!client) return;
++  try {
++    await ready(client);
++    await client.send("HSETEX", [generationHash(generation), "EX", String(TTL_SECONDS), "FIELDS", "1", field(term), JSON.stringify(authors)]);
++  } catch (error) {
++    console.warn("Cache de autores indisponível:", (error as Error).message);
++  }
++}
++
++/**
++ * Invalida todas as buscas de uma vez: a próxima leitura procura na geração
++ * seguinte, que começa vazia. Chame depois do COMMIT; antes dele, uma leitura
++ * concorrente ainda veria o dado antigo no Postgres e o gravaria na geração nova.
++ */
++export async function invalidateAuthorSearch(client: RedisClient | null = redis): Promise<void> {
++  if (!client) return;
++  try {
++    await ready(client);
++    await client.incr(GENERATION);
++  } catch (error) {
++    console.warn("Cache de autores indisponível:", (error as Error).message);
++  }
++}
+\ No newline at end of file
