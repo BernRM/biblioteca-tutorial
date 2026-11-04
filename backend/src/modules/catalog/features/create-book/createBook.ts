@@ -3,6 +3,7 @@ import { civilDate } from "../../../../shared/dates";
 import type { BookInput, BookView } from "../../domain/Book";
 import type { CatalogIntegration } from "../../domain/CatalogIntegration";
 import { checkBookRules, toBookView, type BookRow } from "../../infrastructure/books";
+import { invalidateBookList } from "../../infrastructure/booksCache";
 
 export async function createBook(input: BookInput, integration: CatalogIntegration, now = new Date()): Promise<BookView> {
   const today = civilDate(now);
@@ -18,5 +19,6 @@ export async function createBook(input: BookInput, integration: CatalogIntegrati
   });
   // efeitos derivados só depois do COMMIT: antes dele, ninguém mais vê o livro novo
   await integration.bookCountsChanged([input.authorId]);
+  await invalidateBookList();
   return book;
 }

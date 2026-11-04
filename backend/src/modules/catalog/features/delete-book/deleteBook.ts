@@ -2,6 +2,7 @@ import { inTransaction } from "../../../../infrastructure/transaction";
 import { RuleConflict } from "../../../../shared/errors";
 import type { CatalogIntegration } from "../../domain/CatalogIntegration";
 import { findBook } from "../../infrastructure/books";
+import { invalidateBookList } from "../../infrastructure/booksCache";
 
 export async function deleteBook(id: number, integration: CatalogIntegration): Promise<void> {
   const book = await inTransaction(async (tx) => {
@@ -20,4 +21,5 @@ export async function deleteBook(id: number, integration: CatalogIntegration): P
     return book;
   });
   await integration.bookCountsChanged([book.authorId]);
+  await invalidateBookList();
 }

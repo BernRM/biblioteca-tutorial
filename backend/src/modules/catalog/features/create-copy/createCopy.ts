@@ -4,12 +4,13 @@ import type { CatalogIntegration } from "../../domain/CatalogIntegration";
 import type { CopyView, NewCopyInput } from "../../domain/Copy";
 import { RegistrationNumber } from "../../domain/RegistrationNumber";
 import { findBook } from "../../infrastructure/books";
+import { invalidateBookList } from "../../infrastructure/booksCache";
 import { findCopyView } from "../../infrastructure/copies";
 
 export async function createCopy(input: NewCopyInput, integration: CatalogIntegration, now = new Date()): Promise<CopyView> {
   const today = civilDate(now);
   const year = today.slice(0, 4);
-  return inTransaction(async (tx) => {
+  const copy = await inTransaction(async (tx) => {
     await findBook(tx, input.bookId);
     const [counter] = await tx`
       INSERT INTO acervo_sequencias (ano, ultimo) VALUES (${year}, 1)
@@ -22,4 +23,7 @@ export async function createCopy(input: NewCopyInput, integration: CatalogIntegr
     ` as { id: number }[];
     return findCopyView(tx, row!.id, integration, today);
   });
+  // depois do COMMIT: a lista de livros mostra totalExemplares e exemplaresDisponiveis
+  await invalidateBookList();
+  return copy;
 }
