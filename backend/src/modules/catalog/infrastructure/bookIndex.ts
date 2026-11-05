@@ -146,3 +146,36 @@ export async function syncAuthorBookIndex(authorId: number, integration: Catalog
     console.warn("Índice semântico indisponível:", (error as Error).message);
   }
 }
+
+export type KnnHit = { id: number; distance: number };
+
+/**
+ * O Bun conversa em RESP3, e nele o FT.SEARCH responde um mapa
+ * ({ results: [{ id, extra_attributes }] }). Em RESP2 a mesma resposta é uma
+ * lista plana: [total, chave, [campo, valor], chave, [campo, valor], ...].
+ */
+export function parseKnnReply(reply: unknown, keyPrefix: string): KnnHit[] {
+  const toHit = (key: string, distance: string) => ({ id: Number(key.slice(keyPrefix.length)), distance: Number(distance) });
+  if (Array.isArray(reply)) {
+    const hits: KnnHit[] = [];
+    for (let i = 1; i < reply.length; i += 2) {
+      const fields = reply[i + 1] as string[];
+      hits.push(toHit(reply[i] as string, fields[fields.indexOf("distancia") + 1]!));
+    }
+    return hits;
+  }
+  const { results } = reply as { results: { id: string; extra_attributes: { distancia: string } }[] };
+  return results.map((result) => toHit(result.id, result.extra_attributes.distancia));
+}
+
+/** Os `limit` livros mais próximos do vetor, do mais perto para o mais longe. */
+export async function knnSearch(vector: Float32Array, limit: number, client: RedisClient): Promise<KnnHit[]> {
+  const blob = Buffer.from(vector.buffer, vector.byteOffset, vector.byteLength);
+  const reply = await client.send("FT.SEARCH", [
+    INDEX, `*=>[KNN ${limit} @embedding $vetor AS distancia]`,
+    "PARAMS", "2", "vetor", blob as unknown as string,
+    "SORTBY", "distancia", "RETURN", "1", "distancia",
+    "LIMIT", "0", String(limit), "DIALECT", "2",
+  ]);
+  return parseKnnReply(reply, KEY_PREFIX);
+}
