@@ -1,4 +1,6 @@
 import { invalidateAuthorSearch } from "../modules/authorship";
+import { reconcileBookIndex } from "../modules/catalog";
+import { catalogIntegration } from "./catalogIntegration";
 
 /**
  * Os dados derivados do Redis podem ter ficado para trás: o servidor esteve
@@ -7,4 +9,6 @@ import { invalidateAuthorSearch } from "../modules/authorship";
  */
 export async function refreshDerivedData(): Promise<void> {
   await invalidateAuthorSearch();
+  const { indexed, removed } = await reconcileBookIndex(catalogIntegration);
+  console.log(`Índice semântico: ${indexed} livro(s) indexado(s), ${removed} removido(s)`);
 }

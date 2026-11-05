@@ -32,6 +32,9 @@ services:
       DATABASE_URL: postgres://biblioteca:biblioteca@db:5432/biblioteca_test
       REDIS_URL: redis://redis:6379
       REDIS_PREFIX: biblioteca_test
+      # embeddings determinísticos, sem rede e sem chave: a suíte nunca chama o Gemini
+      EMBEDDING_PROVIDER: hash
+      GEMINI_API_KEY: ""
     depends_on:
       db:
         condition: service_healthy

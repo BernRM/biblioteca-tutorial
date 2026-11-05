@@ -15,5 +15,6 @@ export async function updateAuthor(id: number, input: AuthorInput, integration: 
     return toAuthorView(tx, row!, integration);
   });
   await invalidateAuthorSearch();
+  await integration.authorChanged(id);
   return author;
 }
