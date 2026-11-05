@@ -11,6 +11,9 @@ export type Book = {
   exemplaresDisponiveis: number;
 };
 
+/** UC24: o livro e a distância cosseno até a consulta (0 = mesmo sentido). */
+export type SemanticBook = Book & { distancia: number };
+
 export type Copy = {
   id: number;
   livroId: number;
