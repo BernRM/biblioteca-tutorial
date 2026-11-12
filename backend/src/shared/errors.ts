@@ -13,3 +13,6 @@ export class RuleConflict extends ApplicationError {}
 
 /** Um serviço externo (Redis, provedor de embeddings) não respondeu: HTTP 503. */
 export class ServiceUnavailable extends ApplicationError {}
+
+/** O corpo da requisição passa do tamanho aceito: HTTP 413. */
+export class PayloadTooLarge extends ApplicationError {}
