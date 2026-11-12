@@ -5,7 +5,15 @@ export type AuthorType = "literatura" | "didatico";
 
 export type AuthorInput = { name: string; type: AuthorType };
 
-export type AuthorView = { id: number; name: string; type: AuthorType; bookCount: number };
+export type AuthorView = {
+  id: number; name: string; type: AuthorType; bookCount: number;
+  /**
+   * UC26: quando a foto mudou, em milissegundos; null se o autor não tem foto.
+   * Um número, e não Date: a busca de autores volta do cache do Redis como JSON,
+   * e um Date viraria texto no caminho.
+   */
+  photoVersion: number | null;
+};
 
 export function parseAuthorInput(body: unknown): AuthorInput {
   const data = getBodyAsObject(body);

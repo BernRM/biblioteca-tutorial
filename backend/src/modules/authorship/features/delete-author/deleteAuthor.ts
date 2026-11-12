@@ -11,4 +11,6 @@ export async function deleteAuthor(id: number, integration: AuthorshipIntegratio
     await tx`DELETE FROM autores WHERE id = ${id}`;
   });
   await invalidateAuthorSearch();
+  // TODO (atividade, UC26): depois do COMMIT, descarte a foto do autor no bucket,
+  // como deleteBook faz com a capa (discardObject e photoKey).
 }

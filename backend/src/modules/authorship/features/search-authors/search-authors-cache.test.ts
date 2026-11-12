@@ -47,7 +47,7 @@ test("UC06: resultado velho gravado numa geração antiga não é lido", async (
   expect(read!.authors).toBeNull();
   // uma escrita termina entre a leitura no Postgres e a gravação no cache
   await invalidateAuthorSearch();
-  await writeCachedSearch(term, read!.generation, [{ id: 1, name: "Velho", type: "literatura", bookCount: 0 }]);
+  await writeCachedSearch(term, read!.generation, [{ id: 1, name: "Velho", type: "literatura", bookCount: 0, photoVersion: null }]);
   expect((await readCachedSearch(term))!.authors).toBeNull();
 });
 

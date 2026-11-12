@@ -16,3 +16,6 @@ export class ServiceUnavailable extends ApplicationError {}
 
 /** O corpo da requisição passa do tamanho aceito: HTTP 413. */
 export class PayloadTooLarge extends ApplicationError {}
+
+/** Parte do contrato que ainda não foi implementada (o esqueleto de uma atividade): HTTP 501. */
+export class NotImplemented extends ApplicationError {}

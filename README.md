@@ -75,7 +75,7 @@ na porta 3000. O menu agrupa as páginas por área:
 | Área | Páginas |
 |---|---|
 | Livros | `/livros`, `/livros/cadastrar`, `/livros/editar`, `/livros/excluir`, `/livros/seed`, `/livros/semantica`, `/livros/capa` |
-| Autores | `/autores`, `/autores/cadastrar`, `/autores/editar`, `/autores/excluir` |
+| Autores | `/autores`, `/autores/cadastrar`, `/autores/editar`, `/autores/excluir`, `/autores/foto` |
 | Leitores | `/leitores`, `/leitores/cadastrar`, `/leitores/editar`, `/leitores/excluir` |
 | Exemplares | `/exemplares`, `/exemplares/cadastrar`, `/exemplares/editar`, `/exemplares/excluir` |
 | Reservas | `/reservas`, `/reservas/criar`, `/reservas/cancelar` |
@@ -108,6 +108,7 @@ Todas as rotas ficam sob `/api`; `GET /api` identifica a API.
 | Reservas | `GET /reservas?leitorId=&exemplarId=&situacao=`, `GET /reservas/:id` | `POST /reservas`, `POST /reservas/:id/cancelamento` | — | — |
 | Empréstimos | `GET /emprestimos?leitorId=&exemplarId=&situacao=`, `GET /emprestimos/:id` | `POST /emprestimos`, `POST /emprestimos/:id/devolucao` | — | — |
 | Capa do livro | `GET /livros/:id/capa` | — | `PUT /livros/:id/capa` (multipart, campo `capa`) | `DELETE /livros/:id/capa` |
+| Foto do autor (atividade) | `GET /autores/:id/foto` | — | `PUT /autores/:id/foto` (multipart, campo `foto`) | `DELETE /autores/:id/foto` |
 | Busca semântica | `GET /busca-semantica/livros?q=` | — | — | — |
 | Seed | `GET /seed` | `POST /seed` | — | — |
 
@@ -204,6 +205,7 @@ a aplicação inteira.
 | UC23 | `integration/seed` | `GET /seed`, `POST /seed` |
 | UC24 | `catalog/features/semantic-search-books` | `GET /busca-semantica/livros?q=` |
 | UC25 | `catalog/features/manage-book-cover` | `PUT`, `GET` e `DELETE /livros/:id/capa` |
+| UC26 | `authorship/features/manage-author-photo` | `PUT`, `GET` e `DELETE /autores/:id/foto` (esqueleto da [atividade](.docs/atividade-rustfs.html): responde 501 até ser implementado) |
 
 ## Organização do frontend
 

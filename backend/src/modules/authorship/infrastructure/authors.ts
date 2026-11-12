@@ -11,5 +11,9 @@ export async function findAuthor(db: AuthorshipDb, id: number): Promise<AuthorRo
 }
 
 export async function toAuthorView(db: AuthorshipDb, row: AuthorRow, integration: AuthorshipIntegration): Promise<AuthorView> {
-  return { id: row.id, name: row.name, type: row.type, bookCount: await integration.countBooks(db, row.id) };
+  const [photo] = await db`SELECT foto_atualizada_em AS "photoUpdatedAt" FROM autores WHERE id = ${row.id}` as { photoUpdatedAt: Date | null }[];
+  return {
+    id: row.id, name: row.name, type: row.type, bookCount: await integration.countBooks(db, row.id),
+    photoVersion: photo?.photoUpdatedAt?.getTime() ?? null,
+  };
 }

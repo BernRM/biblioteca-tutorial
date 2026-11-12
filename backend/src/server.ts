@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { serveStatic } from "hono/bun";
 import { DomainError, InvalidValue } from "./shared/domain-errors";
-import { InvalidInput, NotFound, PayloadTooLarge, RuleConflict, ServiceUnavailable } from "./shared/errors";
+import { InvalidInput, NotFound, NotImplemented, PayloadTooLarge, RuleConflict, ServiceUnavailable } from "./shared/errors";
 import type { RegisterRoutes } from "./shared/http";
 
 /** O build do React (`bun run build` em frontend/), relativo à pasta backend/. */
@@ -22,6 +22,10 @@ function errorResponse(error: unknown): Response {
 
   if (error instanceof PayloadTooLarge) {
     return Response.json({ error: error.message }, { status: 413 });
+  }
+
+  if (error instanceof NotImplemented) {
+    return Response.json({ error: error.message }, { status: 501 });
   }
 
   if (error instanceof ServiceUnavailable) {

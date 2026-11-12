@@ -1,4 +1,5 @@
 import { sql } from "../../../infrastructure/postgres";
+import { inTransaction } from "../../../infrastructure/transaction";
 
 // O id vai explícito de propósito: é ele que faz o ON CONFLICT ser
 // idempotente, e é ele que os exemplos deste documento referenciam.
@@ -8,6 +9,22 @@ export const INITIAL_AUTHORS = [
   [3, "Harper Lee", "literatura"],
   [4, "Jane Austen", "literatura"],
 ] as const;
+
+/**
+ * UC26: a foto mora no RustFS; no Postgres fica só quando ela mudou pela última
+ * vez. Nula, o autor não tem foto. Mesmo desenho da capa do livro (UC25).
+ */
+async function addPhotoColumn(): Promise<void> {
+  // ALTER TABLE trava a tabela inteira, mesmo com IF NOT EXISTS: só altera se faltar
+  const [found] = await sql`
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'autores' AND column_name = 'foto_atualizada_em'
+  `;
+  if (found) return;
+  await inTransaction(async (tx) => {
+    await tx`ALTER TABLE autores ADD COLUMN IF NOT EXISTS foto_atualizada_em TIMESTAMPTZ`;
+  });
+}
 
 /** O módulo Autoria é o dono da tabela `autores` — e da carga inicial dela. */
 export async function prepareAuthorship(): Promise<void> {
@@ -36,4 +53,5 @@ export async function prepareAuthorship(): Promise<void> {
     await tx`SELECT setval(pg_get_serial_sequence('autores', 'id'), (SELECT MAX(id) FROM autores))`;
     await tx`INSERT INTO autoria_migracoes (nome) VALUES ('carga-inicial')`;
   });
+  await addPhotoColumn();
 }
