@@ -22,11 +22,13 @@ export async function toBookView(db: CatalogDb, row: BookRow, integration: Catal
     ? await db`SELECT id FROM exemplares WHERE livro_id = ${row.id}` as { id: number }[]
     : [];
   const statuses = await Promise.all(copies.map((copy) => integration.copyAvailability(db, copy.id, today)));
+  const [cover] = await db`SELECT capa_atualizada_em AS "coverUpdatedAt" FROM livros WHERE id = ${row.id}` as { coverUpdatedAt: Date | null }[];
   return {
     id: row.id, isbn: row.isbn, title: row.title, authorId: row.authorId,
     authorName: author?.name ?? "Autor não encontrado", catalogedOn: row.catalogedOn,
     authorBookCount: count?.total ?? 0, totalCopies: copies.length,
     availableCopies: statuses.filter((status) => status === "disponivel").length,
+    coverUpdatedAt: cover?.coverUpdatedAt ?? null,
   };
 }
 

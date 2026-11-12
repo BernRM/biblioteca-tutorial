@@ -61,9 +61,27 @@ async function prepareCopies(): Promise<void> {
   });
 }
 
-/** Prepara as tabelas do Acervo: livros, a migração de UC01 e os exemplares de UC13, nesta ordem. */
+/**
+ * UC25: a capa mora no RustFS; no Postgres fica só quando ela mudou pela última
+ * vez. Nula, o livro não tem capa. A data também entra na URL da capa (?v=...),
+ * e assim o navegador nunca mostra uma capa velha guardada no cache dele.
+ */
+async function addCoverColumn(): Promise<void> {
+  // ALTER TABLE trava a tabela inteira, mesmo com IF NOT EXISTS: só altera se faltar
+  const [found] = await sql`
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'livros' AND column_name = 'capa_atualizada_em'
+  `;
+  if (found) return;
+  await inTransaction(async (tx) => {
+    await tx`ALTER TABLE livros ADD COLUMN IF NOT EXISTS capa_atualizada_em TIMESTAMPTZ`;
+  });
+}
+
+/** Prepara as tabelas do Acervo: livros, a migração de UC01, os exemplares de UC13 e a capa de UC25, nesta ordem. */
 export async function prepareCatalog(): Promise<void> {
   await createBooksTable();
   await dropBookCopyRequirement();
   await prepareCopies();
+  await addCoverColumn();
 }

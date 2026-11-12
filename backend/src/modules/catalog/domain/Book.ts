@@ -6,6 +6,7 @@ export type BookInput = { isbn: string; title: string; authorId: number };
 export type BookView = {
   id: number; isbn: string; title: string; authorId: number; authorName: string;
   catalogedOn: string; authorBookCount: number; totalCopies: number; availableCopies: number;
+  coverUpdatedAt: Date | null;
 };
 
 export function parseBookInput(body: unknown): BookInput {

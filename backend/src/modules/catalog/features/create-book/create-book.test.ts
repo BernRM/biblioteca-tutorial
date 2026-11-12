@@ -13,6 +13,7 @@ test("UC01: cadastro bibliográfico normaliza ISBN e começa sem cópia física"
   expect(book.totalExemplares).toBe(0);
   expect(book.exemplaresDisponiveis).toBe(0);
   expect(book.numeroRegistro).toBeUndefined();
+  expect(book.capaUrl).toBeNull();
   const location = response.headers.get("Location");
   expect(location).toBe(`/api/livros/${isbn}`);
   const lookup = await api("GET", location!.replace(/^\/api/, ""));
