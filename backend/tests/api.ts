@@ -14,6 +14,11 @@ export async function api(method: string, path: string, body?: unknown): Promise
   }) as Promise<TestResponse>;
 }
 
+/** Envia um corpo multipart (um upload de imagem, por exemplo). */
+export async function apiForm(method: string, path: string, form: FormData): Promise<TestResponse> {
+  return app.request(`/api${path}`, { method, body: form }) as Promise<TestResponse>;
+}
+
 export function testName(prefix: string): string {
   return `${prefix} ${crypto.randomUUID()}`;
 }

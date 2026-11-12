@@ -30,7 +30,8 @@ export type StoredObject = { stream: ReadableStream<Uint8Array>; type: string; s
 
 const UNAVAILABLE = "O armazenamento de arquivos está indisponível no momento";
 
-function connected(client: S3Client | null): S3Client {
+/** Sem cliente configurado, 503. Útil para recusar antes de mexer no banco. */
+export function requireStorage(client: S3Client | null = storage): S3Client {
   if (!client) throw new ServiceUnavailable(UNAVAILABLE);
   return client;
 }
@@ -44,7 +45,7 @@ function unavailable(error: unknown): ServiceUnavailable {
 
 /** Grava o objeto inteiro. Se a chave já existe, o objeto anterior é substituído. */
 export async function putObject(key: string, bytes: Uint8Array, type: string, client = storage): Promise<void> {
-  const s3 = connected(client);
+  const s3 = requireStorage(client);
   try {
     await s3.write(key, bytes, { type });
   } catch (error) {
@@ -58,7 +59,7 @@ export async function putObject(key: string, bytes: Uint8Array, type: string, cl
  * assinada em rustfs:9000, um endereço que o navegador não alcança.
  */
 export async function getObject(key: string, client = storage): Promise<StoredObject | null> {
-  const file = connected(client).file(key);
+  const file = requireStorage(client).file(key);
   try {
     const { type, size } = await file.stat();
     return { stream: file.stream(), type, size };
@@ -70,7 +71,7 @@ export async function getObject(key: string, client = storage): Promise<StoredOb
 
 /** Apaga o objeto. Apagar uma chave que não existe também dá certo. */
 export async function deleteObject(key: string, client = storage): Promise<void> {
-  const s3 = connected(client);
+  const s3 = requireStorage(client);
   try {
     await s3.delete(key);
   } catch (error) {
