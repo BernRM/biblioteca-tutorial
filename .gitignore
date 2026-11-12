@@ -53,3 +53,6 @@ backend/data/*.csv
 
 # Cache dos geradores Python
 __pycache__/
+
+# Resumo do código gerado pelo ai-digest
+codebase.md
