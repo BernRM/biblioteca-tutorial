@@ -13,6 +13,11 @@ services:
       REDIS_PREFIX: biblioteca
       # vem de infra/.env (copie infra/.env.example); vazia, a busca semântica fica indisponível
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      # e o RustFS, pelo nome rustfs; as variáveis S3_* são as que o S3Client do Bun conhece
+      S3_ENDPOINT: http://rustfs:9000
+      S3_ACCESS_KEY_ID: biblioteca
+      S3_SECRET_ACCESS_KEY: biblioteca-secreta
+      S3_BUCKET: biblioteca
     ports:
       - "3000:3000"
     depends_on:
@@ -20,6 +25,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      storage-init:
+        condition: service_completed_successfully
 
   # a suíte de testes, rodando dentro da rede e contra o banco de testes:
   # docker compose -f infra/compose.yaml run --rm --build test
@@ -35,11 +42,18 @@ services:
       # embeddings determinísticos, sem rede e sem chave: a suíte nunca chama o Gemini
       EMBEDDING_PROVIDER: hash
       GEMINI_API_KEY: ""
+      # o mesmo RustFS, num bucket só dos testes
+      S3_ENDPOINT: http://rustfs:9000
+      S3_ACCESS_KEY_ID: biblioteca
+      S3_SECRET_ACCESS_KEY: biblioteca-secreta
+      S3_BUCKET: biblioteca-test
     depends_on:
       db:
         condition: service_healthy
       redis:
         condition: service_healthy
+      storage-init:
+        condition: service_completed_successfully
     # com um profile, o "docker compose -f infra/compose.yaml up" não sobe este serviço
     profiles: ["test"]
 
@@ -72,5 +86,44 @@ services:
       timeout: 3s
       retries: 15
 
+  # RustFS: armazenamento de objetos compatível com S3, onde ficam as imagens.
+  # Ao contrário do Redis, aqui há volume: os bytes de uma capa só existem nele.
+  # A API S3 (9000) não tem porta publicada; só o console web, em
+  # http://localhost:9011/rustfs/console/, para você ver os objetos chegando.
+  rustfs:
+    image: rustfs/rustfs:1.0.5
+    environment:
+      # o "usuário" e a "senha" do S3, só para desenvolvimento, como os do Postgres
+      RUSTFS_ACCESS_KEY: biblioteca
+      RUSTFS_SECRET_KEY: biblioteca-secreta
+    ports:
+      - "127.0.0.1:9011:9001"
+    volumes:
+      - rustfsdata:/data
+    healthcheck:
+      # /health/ready, e não /health: o /health responde 200 antes de a API S3
+      # aceitar requisições, e ela devolve 503 nos primeiros segundos
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9000/health/ready >/dev/null"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  # Tarefa única: cria os buckets da aplicação e dos testes com o rc, o cliente
+  # de linha de comando que vem dentro da imagem do RustFS. O S3Client do Bun lê e
+  # grava objetos, mas não cria buckets. Rodar de novo não dá erro.
+  storage-init:
+    image: rustfs/rustfs:1.0.5
+    depends_on:
+      rustfs:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        rc alias set local http://rustfs:9000 biblioteca biblioteca-secreta
+        rc bucket create --ignore-existing local/biblioteca
+        rc bucket create --ignore-existing local/biblioteca-test
+
 volumes:
   pgdata:
+  rustfsdata:
