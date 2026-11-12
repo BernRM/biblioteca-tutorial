@@ -1,11 +1,13 @@
-# Biblioteca — evolução SaaS, fase 02
+# Biblioteca — evolução SaaS, fase 03
 
 Tópicos Especiais em Engenharia de Software II · Ifes 2026.2
 
-A branch `saas-evolution/fase02` parte da `saas-evolution/fase01`, que implementou a
-[aula de PostgreSQL, Docker e React](.docs/saas-evolution/saas-fase01.html)
-e os 23 casos de uso da turma. O monólito modular usa PostgreSQL 18 e uma
-interface React 19 com acervo, autores, leitores, exemplares, reservas e empréstimos.
+A branch `saas-evolution/fase03` parte da `saas-evolution/fase02`, que trouxe o
+Redis 8 (cache da busca de autores e busca semântica de livros, UC24). Esta fase
+implementa a [aula de armazenamento de objetos com RustFS](.docs/saas-evolution/saas-fase03.html):
+as capas dos livros (UC25) ficam num bucket do RustFS, compatível com S3, e o
+Postgres guarda só quando cada capa mudou. Os [slides da aula](.docs/saas-evolution/slides-rustfs.html)
+e um [exemplo mínimo com Bun](.docs/saas-evolution/exemplo-rustfs/) acompanham o tutorial.
 
 ## Executar a aplicação
 
@@ -16,8 +18,14 @@ docker compose -f infra/compose.yaml up -d --build
 ```
 
 Abra <http://localhost:3000>. O `infra/Dockerfile` compila o frontend, e o backend serve
-a interface e a API no mesmo endereço. O PostgreSQL atende somente na rede do
-Compose, sem publicar a porta 5432. Os dados ficam no volume `pgdata`.
+a interface e a API no mesmo endereço. O PostgreSQL, o Redis e a API S3 do RustFS
+atendem somente na rede do Compose. Os dados ficam nos volumes `pgdata` (Postgres)
+e `rustfsdata` (as imagens). O serviço `storage-init` cria os buckets `biblioteca`
+e `biblioteca-test` e termina.
+
+O console do RustFS fica em <http://localhost:9011/rustfs/console/> (usuário
+`biblioteca`, senha `biblioteca-secreta`, só para desenvolvimento): ali dá para ver
+cada capa enviada, em `acervo/livros/<id>/capa`.
 
 Para parar e preservar os dados:
 
@@ -66,7 +74,7 @@ na porta 3000. O menu agrupa as páginas por área:
 
 | Área | Páginas |
 |---|---|
-| Livros | `/livros`, `/livros/cadastrar`, `/livros/editar`, `/livros/excluir`, `/livros/seed` |
+| Livros | `/livros`, `/livros/cadastrar`, `/livros/editar`, `/livros/excluir`, `/livros/seed`, `/livros/semantica`, `/livros/capa` |
 | Autores | `/autores`, `/autores/cadastrar`, `/autores/editar`, `/autores/excluir` |
 | Leitores | `/leitores`, `/leitores/cadastrar`, `/leitores/editar`, `/leitores/excluir` |
 | Exemplares | `/exemplares`, `/exemplares/cadastrar`, `/exemplares/editar`, `/exemplares/excluir` |
@@ -99,11 +107,14 @@ Todas as rotas ficam sob `/api`; `GET /api` identifica a API.
 | Exemplares | `GET /exemplares?q=&livroId=&situacao=`, `GET /exemplares/:id` | `POST /exemplares` | `PUT /exemplares/:id` | `DELETE /exemplares/:id` |
 | Reservas | `GET /reservas?leitorId=&exemplarId=&situacao=`, `GET /reservas/:id` | `POST /reservas`, `POST /reservas/:id/cancelamento` | — | — |
 | Empréstimos | `GET /emprestimos?leitorId=&exemplarId=&situacao=`, `GET /emprestimos/:id` | `POST /emprestimos`, `POST /emprestimos/:id/devolucao` | — | — |
+| Capa do livro | `GET /livros/:id/capa` | — | `PUT /livros/:id/capa` (multipart, campo `capa`) | `DELETE /livros/:id/capa` |
+| Busca semântica | `GET /busca-semantica/livros?q=` | — | — | — |
 | Seed | `GET /seed` | `POST /seed` | — | — |
 
 A busca legada `GET /api/livros/:q` continua disponível. O cadastro de livro
 recebe `isbn`, `titulo` e `autorId`; o de exemplar recebe `livroId`, `localizacao`
-e `estadoConservacao`. Os autores da carga inicial são 1 — Eric Evans,
+e `estadoConservacao`. A capa aceita JPEG, PNG ou WebP de até 2 MB, conferidos pelos
+primeiros bytes do arquivo; o JSON do livro traz `capaUrl` (ou `null`). Os autores da carga inicial são 1 — Eric Evans,
 2 — Robert C. Martin, 3 — Harper Lee e 4 — Jane Austen.
 
 ## Estrutura e tutorial original
@@ -144,7 +155,7 @@ banco (tabelas, colunas e valores persistidos), as mensagens ao usuário e os co
 backend/src/
 ├── main.ts · seed.ts · import-books.ts   pontos de entrada
 ├── server.ts · composition.ts            app Hono, preparo do banco e descoberta das fatias
-├── infrastructure/                       conexão PostgreSQL e transação
+├── infrastructure/                       PostgreSQL, transação, Redis, RustFS (storage.ts) e embeddings
 ├── shared/                               erros, validação, HTTP e datas
 ├── integration/                          SQL entre módulos e o seed (UC23)
 └── modules/<módulo>/
@@ -158,8 +169,9 @@ Os módulos são `catalog` (livros e exemplares), `authorship` (autores), `reade
 (leitores) e `circulation` (reservas e empréstimos). O `composition.ts` descobre
 cada `features/<fatia>/route.ts`, então adicionar uma fatia não altera nenhum
 registro central. `bun run check-boundaries` barra import entre fatias, import de
-arquivos internos de outro módulo e SQL em tabela de outro módulo. As mesmas
-regras de import valem para o frontend.
+arquivos internos de outro módulo, SQL em tabela de outro módulo e chave do Redis
+ou do RustFS de outro módulo (`redisKey("acervo", …)`, `objectKey("acervo", …)`).
+As mesmas regras de import valem para o frontend.
 
 Os testes de cada fatia ficam ao lado dela (`<fatia>.test.ts`); `backend/tests/`
 guarda o suporte compartilhado (importado como `#tests/...`) e os testes que sobem
@@ -190,6 +202,8 @@ a aplicação inteira.
 | UC21 | `circulation/features/list-loans` | `GET /emprestimos`, `GET /emprestimos/:id` |
 | UC22 | `circulation/features/list-reservations` | `GET /reservas`, `GET /reservas/:id` |
 | UC23 | `integration/seed` | `GET /seed`, `POST /seed` |
+| UC24 | `catalog/features/semantic-search-books` | `GET /busca-semantica/livros?q=` |
+| UC25 | `catalog/features/manage-book-cover` | `PUT`, `GET` e `DELETE /livros/:id/capa` |
 
 ## Organização do frontend
 
