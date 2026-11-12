@@ -1,10 +1,12 @@
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import { api, testAuthor, testIsbn } from "#tests/api";
+import { embedder as defaultEmbedder } from "../../../infrastructure/embedder";
 import { createHashEmbedder } from "../../../infrastructure/hashEmbedder";
 import { sql } from "../../../infrastructure/postgres";
 import { catalogIntegration } from "../../../integration/catalogIntegration";
 import type { Embedder } from "../../../shared/Embedder";
 import { nearestBookVectors, reconcileBookIndex, syncBookIndex } from "./bookVectors";
+import { prepareCatalog } from "./schema";
 
 // a suíte roda com EMBEDDING_PROVIDER=hash: cada escrita de livro grava um vetor de verdade, sem rede
 const base = createHashEmbedder();
@@ -110,6 +112,24 @@ test("UC24: com o embedder fora do ar a sincronização não lança e o livro co
   expect(await storedVector(book.id)).not.toBeNull();
 });
 
+test("UC24: com o embedder fora do ar, cadastrar e editar pela API continuam funcionando", async () => {
+  // o mesmo objeto que o createBook usa: mesmo id e mesma dimensão, então a tabela não é recriada
+  const failing = spyOn(defaultEmbedder!, "embed").mockImplementation(async () => { throw new Error("fora do ar"); });
+  let book: { id: number; isbn: string };
+  const author = await testAuthor();
+  try {
+    book = await createBook(`Livro ${token()}`, author.id);
+    expect((await api("PUT", `/livros/${book.id}`, { isbn: book.isbn, titulo: `Outro ${token()}`, autorId: author.id })).status).toBe(200);
+    expect(failing).toHaveBeenCalled();
+    expect(await storedVector(book.id)).toBeNull();
+  } finally {
+    failing.mockRestore();
+  }
+  // o livro ficou sem vetor até a próxima reconciliação
+  await reconcileBookIndex(catalogIntegration);
+  expect(await storedVector(book!.id)).not.toBeNull();
+});
+
 test("UC24: embedder de outra dimensão refaz a tabela e reindexa", async () => {
   const author = await testAuthor();
   const book = await createBook(`Livro ${token()}`, author.id);
@@ -150,7 +170,24 @@ test("UC24: o índice é HNSW com distância cosseno e a busca pode usá-lo", as
   expect(plan.map((row) => row["QUERY PLAN"]).join("\n")).toContain("livros_vetores_embedding_idx");
 });
 
-test("UC24: a extensão vector está instalada no banco de testes", async () => {
+test("UC24: a extensão vector é criada pela aplicação, e preparar de novo não falha", async () => {
+  await prepareCatalog();
+  await prepareCatalog();
   const [row] = await sql`SELECT extversion FROM pg_extension WHERE extname = 'vector'` as { extversion: string }[];
   expect(row).toBeDefined();
+});
+
+test("UC24: nada no caminho da indexação e da busca semântica importa o Redis", async () => {
+  const files = [
+    "src/modules/catalog/infrastructure/bookVectors.ts",
+    "src/modules/catalog/infrastructure/schema.ts",
+    "src/modules/catalog/features/semantic-search-books/searchBooksSemantically.ts",
+    "src/modules/catalog/features/semantic-search-books/route.ts",
+    "src/modules/catalog/features/create-book/createBook.ts",
+    "src/modules/catalog/features/update-book/updateBook.ts",
+    "src/modules/catalog/features/delete-book/deleteBook.ts",
+  ];
+  for (const file of files) {
+    expect(await Bun.file(new URL(`../../../../${file}`, import.meta.url)).text()).not.toContain("infrastructure/redis");
+  }
 });
