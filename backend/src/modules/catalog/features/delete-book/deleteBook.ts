@@ -1,8 +1,10 @@
+import { discardObject } from "../../../../infrastructure/storage";
 import { inTransaction } from "../../../../infrastructure/transaction";
 import { RuleConflict } from "../../../../shared/errors";
 import type { CatalogIntegration } from "../../domain/CatalogIntegration";
 import { syncBookIndex } from "../../infrastructure/bookIndex";
 import { findBook } from "../../infrastructure/books";
+import { coverKey } from "../../infrastructure/covers";
 
 export async function deleteBook(id: number, integration: CatalogIntegration): Promise<void> {
   const book = await inTransaction(async (tx) => {
@@ -23,4 +25,6 @@ export async function deleteBook(id: number, integration: CatalogIntegration): P
   await integration.bookCountsChanged([book.authorId]);
   // o livro não existe mais no Postgres: syncBookIndex o remove do índice
   await syncBookIndex([id], integration);
+  // e a capa, se houver, sai do bucket; uma falha aqui só deixa um objeto órfão
+  await discardObject(coverKey(id));
 }
