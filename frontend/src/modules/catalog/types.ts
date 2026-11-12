@@ -9,6 +9,8 @@ export type Book = {
   dataCatalogacao: string;
   totalExemplares: number;
   exemplaresDisponiveis: number;
+  /** UC25: /api/livros/:id/capa?v=..., ou null se o livro não tem capa. */
+  capaUrl: string | null;
 };
 
 /** UC24: o livro e a distância cosseno até a consulta (0 = mesmo sentido). */

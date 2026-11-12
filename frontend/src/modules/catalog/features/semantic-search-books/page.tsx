@@ -2,6 +2,7 @@
 import { Link, useSearchParams } from "react-router-dom";
 import { Loading } from "../../../../shared/ui/feedback.tsx";
 import { SearchForm } from "../../../../shared/ui/fields.tsx";
+import { Thumbnail } from "../../../../shared/ui/images.tsx";
 import { Page } from "../../../../shared/ui/Page.tsx";
 import { Table } from "../../../../shared/ui/Table.tsx";
 import { useFetch } from "../../../../shared/useFetch.ts";
@@ -17,8 +18,9 @@ function SemanticSearchBooks() {
     <Loading loading={books.loading} error={books.error} />
     {books.data && (books.data.length ? <>
       <p className="count">{books.data.length} livro(s) próximo(s), do mais parecido para o menos</p>
-      <Table label="Livros próximos"><thead><tr><th>Título / ISBN</th><th>Autor</th><th>Similaridade</th><th>Exemplares</th></tr></thead><tbody>
+      <Table label="Livros próximos"><thead><tr><th><span className="visually-hidden">Capa</span></th><th>Título / ISBN</th><th>Autor</th><th>Similaridade</th><th>Exemplares</th></tr></thead><tbody>
         {books.data.map((book) => <tr key={book.id}>
+          <td className="thumb-cell"><Thumbnail url={book.capaUrl} /></td>
           <td><strong>{book.titulo}</strong><small className="secondary-line">{book.isbn}</small></td>
           <td>{book.autor}</td>
           {/* similaridade cosseno = 1 − distância: 1 é o mesmo sentido */}

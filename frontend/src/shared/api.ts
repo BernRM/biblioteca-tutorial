@@ -28,3 +28,13 @@ export function queryString(data: Record<string, string>): string {
   const result = query.toString();
   return result ? `?${result}` : "";
 }
+
+/**
+ * Envia um arquivo em multipart/form-data. Sem Content-Type à mão: o navegador
+ * monta o corpo e escreve o cabeçalho com a fronteira (boundary) entre as partes.
+ */
+export function sendFile<T>(path: string, field: string, file: File): Promise<T> {
+  const body = new FormData();
+  body.append(field, file);
+  return api<T>(path, { method: "PUT", body });
+}
