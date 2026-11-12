@@ -16,7 +16,7 @@ const TABLE_OWNERS: Record<string, string> = {
   emprestimos: "circulation",
 };
 
-/** O mesmo vale para o Redis: o primeiro trecho de redisKey(...) diz o módulo dono da chave. */
+/** O mesmo vale para o Redis e para o RustFS: o primeiro trecho de redisKey(...) e de objectKey(...) diz o módulo dono. */
 const KEY_OWNERS: Record<string, string> = {
   autoria: "authorship",
   acervo: "catalog",
@@ -62,6 +62,16 @@ for await (const rawFile of new Glob("src/modules/**/*.ts").scan(".")) {
     if (new RegExp(`\\b(FROM|JOIN|INTO|UPDATE|TABLE|EXISTS)\\s+${table}\\b`, "i").test(code)) {
       problems.push(
         `${file}\n      toca a tabela "${table}", que pertence a ${owner}`,
+      );
+    }
+  }
+
+  // e para o armazenamento de objetos: o primeiro trecho de objectKey(...) também
+  for (const found of code.matchAll(/objectKey\(\s*"(\w+)"/g)) {
+    const owner = KEY_OWNERS[found[1]!];
+    if (owner !== module) {
+      problems.push(
+        `${file}\n      toca o objeto "${found[1]}/*", que pertence a ${owner ?? "nenhum módulo"}`,
       );
     }
   }
