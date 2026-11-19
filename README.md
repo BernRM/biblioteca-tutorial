@@ -6,8 +6,8 @@ A branch `saas-evolution/fase03` parte da `saas-evolution/fase02`, que trouxe o
 Redis 8 (cache da busca de autores e busca semântica de livros, UC24). Esta fase
 implementa a [aula de armazenamento de objetos com RustFS](.docs/saas-evolution/saas-fase03.html):
 as capas dos livros (UC25) ficam num bucket do RustFS, compatível com S3, e o
-Postgres guarda só quando cada capa mudou. Os [slides da aula](.docs/saas-evolution/slides-rustfs.html)
-e um [exemplo mínimo com Bun](.docs/saas-evolution/exemplo-rustfs/) acompanham o tutorial.
+Postgres guarda só quando cada capa mudou. Os [slides da aula](.docs/aulas/rustfs/slides-rustfs.html)
+e um [exemplo mínimo com Bun](.docs/aulas/rustfs/exemplo-rustfs/) acompanham o tutorial.
 
 ## Executar a aplicação
 
@@ -205,7 +205,7 @@ a aplicação inteira.
 | UC23 | `integration/seed` | `GET /seed`, `POST /seed` |
 | UC24 | `catalog/features/semantic-search-books` | `GET /busca-semantica/livros?q=` |
 | UC25 | `catalog/features/manage-book-cover` | `PUT`, `GET` e `DELETE /livros/:id/capa` |
-| UC26 | `authorship/features/manage-author-photo` | `PUT`, `GET` e `DELETE /autores/:id/foto` (esqueleto da [atividade](.docs/atividade-rustfs.html): responde 501 até ser implementado) |
+| UC26 | `authorship/features/manage-author-photo` | `PUT`, `GET` e `DELETE /autores/:id/foto` (esqueleto da [atividade](.docs/atividades/atividade-rustfs.html): responde 501 até ser implementado) |
 
 ## Organização do frontend
 

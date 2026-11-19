@@ -280,7 +280,7 @@ kbd{font-family:var(--mono);font-size:.82em;background:#fff;border:1px solid #cb
 <div class="fase-body">
 <p>Esta aula parte da branch <code>saas-evolution/fase02</code>: o monólito modular com Postgres 18, Redis 8 e a busca semântica. Ao fim dela, cada livro poderá ter uma <strong>capa</strong>. A imagem fica num <strong>armazenamento de objetos</strong>, o RustFS, e o Postgres guarda só a data em que ela mudou.</p>
 <div class="step "><h3>Leitura antes da aula</h3>
-<p>Se você nunca usou armazenamento de objetos, comece pelos slides <code>.docs/saas-evolution/slides-rustfs.html</code>: eles explicam bucket, chave, objeto e a API S3 do zero, e terminam num exemplo mínimo em Bun. O exemplo está em <code>.docs/saas-evolution/exemplo-rustfs/</code>, com um compose próprio (portas 9100, 9101 e 3200), que não conflita com o do projeto. Os dois estão na branch <code>saas-evolution/fase03</code>, junto deste tutorial.</p>
+<p>Se você nunca usou armazenamento de objetos, comece pelos slides <code>.docs/aulas/rustfs/slides-rustfs.html</code>: eles explicam bucket, chave, objeto e a API S3 do zero, e terminam num exemplo mínimo em Bun. O exemplo está em <code>.docs/aulas/rustfs/exemplo-rustfs/</code>, com um compose próprio (portas 9100, 9101 e 3200), que não conflita com o do projeto. Os dois estão na branch <code>saas-evolution/fase03</code>, junto deste tutorial.</p>
 </div>
 <div class="step "><h3>O código de partida</h3>
 <p>Atualize o repositório e crie uma branch sua para a aula:</p><div class="cb"><div class="cb-bar"><span class="cb-lang">terminal</span><span class="cb-note">PowerShell</span><div class="cb-actions"><button class="cp" data-code="c1">copiar</button></div></div><pre class="cb-body" id="c1"><code>git fetch
@@ -2260,7 +2260,7 @@ api.get(&quot;/livros/:id/capa&quot;, async (c) =&gt; {
 </ul>
 </div>
 <div class="step "><h3>A atividade</h3>
-<p>Agora é a sua vez: <a href="../atividade-rustfs.html">a atividade</a> (<code>.docs/atividade-rustfs.html</code>) repete este desenho para a <strong>foto dos autores</strong> (UC26). A interface, as rotas e o esqueleto estão prontos; enviar, mostrar, remover e apagar a foto quando o autor é excluído ficam com você. Há um cuidado a mais: a busca de autores tem o cache do Redis da aula anterior, e trocar a foto precisa invalidá-lo.</p>
+<p>Agora é a sua vez: <a href="../atividades/atividade-rustfs.html">a atividade</a> (<code>.docs/atividades/atividade-rustfs.html</code>) repete este desenho para a <strong>foto dos autores</strong> (UC26). A interface, as rotas e o esqueleto estão prontos; enviar, mostrar, remover e apagar a foto quando o autor é excluído ficam com você. Há um cuidado a mais: a busca de autores tem o cache do Redis da aula anterior, e trocar a foto precisa invalidá-lo.</p>
 <p>O RustFS entrou ao lado do Postgres sem tomar o lugar dele. O Postgres continua respondendo o que existe e quando mudou; o RustFS guarda os bytes; e a ordem das operações garante que um nunca prometa o que o outro não tem.</p>
 </div>
 </div>

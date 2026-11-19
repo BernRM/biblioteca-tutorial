@@ -315,7 +315,7 @@ docker compose -f infra/compose.yaml run --rm --build test</code></pre></div>
 <tr><td><code>backend/scripts/check-boundaries.ts</code></td><td>A tabela <code>KEY_OWNERS</code>: o primeiro trecho de cada <code>redisKey(...)</code> tem um módulo dono.</td></tr>
 <tr><td><code>backend/src/modules/authorship/features/search-authors/search-authors-cache.test.ts</code></td><td>O modelo dos seus testes: <code>MISS</code> seguido de <code>HIT</code>, invalidação por escrita, a corrida da geração e o <code>BYPASS</code> com um cliente que aponta para um Redis inexistente.</td></tr>
 </table></div>
-<p>A explicação de cada decisão está no roteiro da aula: <a href="saas-evolution/saas-fase02.html#passo-02">passo 02, cache-aside na busca de autores</a> (a corrida e a geração) e <a href="saas-evolution/saas-fase02.html#passo-03">passo 03, livros também invalidam</a> (depois do COMMIT e quem escreve direto nas tabelas).</p>
+<p>A explicação de cada decisão está no roteiro da aula: <a href="../saas-evolution/saas-fase02.html#passo-02">passo 02, cache-aside na busca de autores</a> (a corrida e a geração) e <a href="../saas-evolution/saas-fase02.html#passo-03">passo 03, livros também invalidam</a> (depois do COMMIT e quem escreve direto nas tabelas).</p>
 </div>
 
 <div class="step "><h3>O módulo Leitores, onde você vai trabalhar</h3>

@@ -1,5 +1,5 @@
 # Exemplo mínimo dos slides: um RustFS e um bucket "fotos".
-# Suba com:  docker compose -f .docs/saas-evolution/exemplo-rustfs/compose.yaml up -d
+# Suba com:  docker compose -f .docs/aulas/rustfs/exemplo-rustfs/compose.yaml up -d
 name: exemplo-rustfs
 
 services:

@@ -1324,11 +1324,11 @@ new S3Client({ endpoint: "http://localhost:9100", … });                    // 
 <section class="slide" id="subir" data-title="Subir e conferir">
   <p class="kicker">8 · RustFS no Docker</p>
   <h2>Subir e conferir</h2>
-  <div class="term frag"><span class="p">$</span> docker compose -f .docs/saas-evolution/exemplo-rustfs/compose.yaml up -d --wait
+  <div class="term frag"><span class="p">$</span> docker compose -f .docs/aulas/rustfs/exemplo-rustfs/compose.yaml up -d --wait
 <span class="o"> Container exemplo-rustfs-rustfs-1 </span><span class="g">Healthy</span>
 <span class="o"> container exemplo-rustfs-criar-bucket-1 </span><span class="g">exited (0)</span>
 
-<span class="p">$</span> docker compose -f .docs/saas-evolution/exemplo-rustfs/compose.yaml logs criar-bucket
+<span class="p">$</span> docker compose -f .docs/aulas/rustfs/exemplo-rustfs/compose.yaml logs criar-bucket
 <span class="o">criar-bucket-1  | </span><span class="g">✓ Alias 'local' configured successfully.</span>
 <span class="o">criar-bucket-1  | </span><span class="g">✓ Bucket 'local/fotos' created successfully.</span></div>
   <div class="grid2 mt">
@@ -1551,7 +1551,7 @@ return new Response(file.stream(), {
           <tr><td class="mono">DELETE /fotos/:nome</td><td>DELETE</td></tr>
         </tbody>
       </table>
-      <p class="small frag">Em <code>.docs/saas-evolution/exemplo-rustfs/</code>: <code>compose.yaml</code>, <code>index.ts</code> e <code>index.html</code>.</p>
+      <p class="small frag">Em <code>.docs/aulas/rustfs/exemplo-rustfs/</code>: <code>compose.yaml</code>, <code>index.ts</code> e <code>index.html</code>.</p>
     </div>
   </div>
   <aside class="notes">O código das próximas telas é exatamente o do repositório, com os números de linha reais. O mini-app não depende do projeto da biblioteca: roda sozinho.</aside>
@@ -1792,8 +1792,8 @@ function detectImage(bytes: Uint8Array) {
   <h2>Rodando, e o que esperar</h2>
   <div class="split">
     <div class="stack">
-      <div class="term"><span class="p">$</span> docker compose -f .docs/saas-evolution/exemplo-rustfs/compose.yaml up -d --wait
-<span class="p">$</span> bun .docs/saas-evolution/exemplo-rustfs/index.ts
+      <div class="term"><span class="p">$</span> docker compose -f .docs/aulas/rustfs/exemplo-rustfs/compose.yaml up -d --wait
+<span class="p">$</span> bun .docs/aulas/rustfs/exemplo-rustfs/index.ts
 <span class="g">Exemplo em http://localhost:3200</span></div>
       <p class="callout green small frag">Abra <b>localhost:3200</b>, envie uma imagem e veja o objeto no console: <b>localhost:9101/rustfs/console/</b>.</p>
       <p class="callout small frag">Para parar: <code>Ctrl+C</code> no Bun, e <code>docker compose … down</code> (com <code>-v</code>, apaga também os objetos).</p>
@@ -1893,7 +1893,7 @@ function detectImage(bytes: Uint8Array) {
     <li>Bun: o cliente S3 (<code>S3Client</code>, <code>presign</code>, variáveis de ambiente). <span class="mono">bun.com/docs/runtime/s3</span></li>
     <li>Amazon S3: guia do usuário e a assinatura Signature Version 4. <span class="mono">docs.aws.amazon.com/s3</span></li>
     <li>MinIO em modo de manutenção. <span class="mono">linuxiac.com/minio-ends-active-development</span> · <span class="mono">blog.vonng.com/en/db/minio-resurrect</span></li>
-    <li>O exemplo desta aula. <span class="mono">.docs/saas-evolution/exemplo-rustfs/</span></li>
+    <li>O exemplo desta aula. <span class="mono">.docs/aulas/rustfs/exemplo-rustfs/</span></li>
   </ul>
   <p class="lead mt2 serif" style="font-size:34px!important">Obrigado. Dúvidas?</p>
   <aside class="notes">Os endereços também ficam nesta tela para quem quiser revisar. O exemplo roda sem o projeto da biblioteca.</aside>
