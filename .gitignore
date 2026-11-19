@@ -56,3 +56,6 @@ __pycache__/
 
 # Resumo do código gerado pelo ai-digest
 codebase.md
+
+# Entregas zipadas na raiz
+/*.zip
